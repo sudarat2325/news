@@ -1,0 +1,28 @@
+{
+  "name": "news-crypto",
+  "version": "1.0.0",
+  "description": "Cryptocurrency news aggregator and tracker",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cryptocurrency",
+    "crypto",
+    "news",
+    "bitcoin",
+    "ethereum",
+    "blockchain"
+  ],
+  "author": "Sudarat",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
