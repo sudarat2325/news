@@ -10,7 +10,13 @@
       "Bash(git push:*)",
       "Bash(git remote:*)",
       "Bash(npm install)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(node test.js:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(sudo chown:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

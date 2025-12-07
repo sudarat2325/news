@@ -1,4 +1,6 @@
 const axios = require('axios');
+const express = require('express');
+const path = require('path');
 require('dotenv').config();
 
 class CryptoNewsTracker {
@@ -14,7 +16,9 @@ class CryptoNewsTracker {
    */
   async fetchCryptoNews(query = 'cryptocurrency OR bitcoin OR ethereum', limit = 10) {
     try {
-      console.log('🔍 Fetching cryptocurrency news...\n');
+      // NewsAPI ไม่อนุญาตให้ใช้ Key บน localhost สำหรับ Free plan
+      // เราจะใช้ Key ต่อเมื่อไม่ได้อยู่ในโหมด development
+      const apiKey = process.env.NODE_ENV === 'production' ? process.env.NEWS_API_KEY : undefined;
 
       const response = await axios.get(this.newsApiUrl, {
         params: {
@@ -22,30 +26,19 @@ class CryptoNewsTracker {
           sortBy: 'publishedAt',
           language: 'en',
           pageSize: limit,
-          apiKey: process.env.NEWS_API_KEY || 'demo'
+          // Axios จะไม่ส่ง parameter ที่มีค่าเป็น undefined
+          // ทำให้ request นี้ทำงานได้บน localhost
+          apiKey: apiKey
         }
       });
 
-      const articles = response.data.articles;
-
-      if (articles && articles.length > 0) {
-        console.log(`📰 Found ${articles.length} latest crypto news:\n`);
-        articles.forEach((article, index) => {
-          console.log(`${index + 1}. ${article.title}`);
-          console.log(`   Source: ${article.source.name}`);
-          console.log(`   Published: ${new Date(article.publishedAt).toLocaleString()}`);
-          console.log(`   URL: ${article.url}\n`);
-        });
-      } else {
-        console.log('No news found.');
-      }
-
-      return articles;
+      return response.data.articles || [];
     } catch (error) {
       console.error('❌ Error fetching news:', error.message);
       if (error.response) {
         console.error('Response status:', error.response.status);
       }
+      throw error; // Re-throw the error to be handled by the caller
     }
   }
 
@@ -55,8 +48,6 @@ class CryptoNewsTracker {
    */
   async fetchTopCoins(limit = 10) {
     try {
-      console.log('💰 Fetching top cryptocurrencies...\n');
-
       const response = await axios.get(`${this.coinGeckoUrl}/coins/markets`, {
         params: {
           vs_currency: 'usd',
@@ -67,22 +58,10 @@ class CryptoNewsTracker {
         }
       });
 
-      const coins = response.data;
-
-      console.log('🏆 Top Cryptocurrencies:\n');
-      coins.forEach((coin, index) => {
-        const priceChange = coin.price_change_percentage_24h;
-        const changeEmoji = priceChange >= 0 ? '📈' : '📉';
-
-        console.log(`${index + 1}. ${coin.name} (${coin.symbol.toUpperCase()})`);
-        console.log(`   Price: $${coin.current_price.toLocaleString()}`);
-        console.log(`   24h Change: ${changeEmoji} ${priceChange?.toFixed(2)}%`);
-        console.log(`   Market Cap: $${(coin.market_cap / 1e9).toFixed(2)}B\n`);
-      });
-
-      return coins;
+      return response.data || [];
     } catch (error) {
       console.error('❌ Error fetching coins:', error.message);
+      throw error;
     }
   }
 
@@ -92,8 +71,6 @@ class CryptoNewsTracker {
    */
   async fetchCoinDetails(coinId = 'bitcoin') {
     try {
-      console.log(`🪙 Fetching ${coinId} details...\n`);
-
       const response = await axios.get(`${this.coinGeckoUrl}/coins/${coinId}`, {
         params: {
           localization: false,
@@ -103,51 +80,77 @@ class CryptoNewsTracker {
         }
       });
 
-      const coin = response.data;
-
-      console.log(`📊 ${coin.name} (${coin.symbol.toUpperCase()}) Details:\n`);
-      console.log(`Current Price: $${coin.market_data.current_price.usd.toLocaleString()}`);
-      console.log(`Market Cap Rank: #${coin.market_cap_rank}`);
-      console.log(`24h High: $${coin.market_data.high_24h.usd.toLocaleString()}`);
-      console.log(`24h Low: $${coin.market_data.low_24h.usd.toLocaleString()}`);
-      console.log(`All-Time High: $${coin.market_data.ath.usd.toLocaleString()}`);
-      console.log(`\n${coin.description.en.substring(0, 200)}...\n`);
-
-      return coin;
+      return response.data;
     } catch (error) {
       console.error('❌ Error fetching coin details:', error.message);
+      throw error;
     }
   }
 }
 
-// Main execution
-async function main() {
+// --- Web Server Setup ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ตั้งค่า EJS เป็น view engine
+app.set('view engine', 'ejs');
+// Express จะมองหาไฟล์ .ejs ในโฟลเดอร์ 'views' เป็นค่าเริ่มต้น
+// แต่เนื่องจากไฟล์ .ejs ของเราอยู่ที่ root, เราจึงต้องตั้งค่าให้ถูกต้อง
+app.set('views', __dirname);
+
+// Route หลักสำหรับหน้า Home
+app.get('/', async (req, res) => {
   const tracker = new CryptoNewsTracker();
+  try {
+    // ใช้ Promise.allSettled เพื่อให้แอปทำงานต่อได้แม้ API ตัวใดตัวหนึ่งจะล้มเหลว
+    const results = await Promise.allSettled([
+      tracker.fetchTopCoins(5),
+      tracker.fetchCryptoNews('bitcoin OR ethereum', 5)
+    ]);
 
-  console.log('='.repeat(60));
-  console.log('🚀 CRYPTOCURRENCY NEWS & TRACKER');
-  console.log('='.repeat(60) + '\n');
+    // ตรวจสอบผลลัพธ์ของแต่ละ Promise
+    const coins = results[0].status === 'fulfilled' ? results[0].value : [];
+    const news = results[1].status === 'fulfilled' ? results[1].value : [];
 
-  // Fetch top coins
-  await tracker.fetchTopCoins(5);
+    // Log error ถ้ามี API ที่ล้มเหลว เพื่อให้เราทราบปัญหาใน console
+    if (results[0].status === 'rejected') {
+      console.error("⚠️  Warning: Failed to fetch coin data:", results[0].reason.message);
+    }
+    if (results[1].status === 'rejected') {
+      console.error("⚠️  Warning: Failed to fetch news data:", results[1].reason.message);
+    }
 
-  console.log('='.repeat(60) + '\n');
+    // Render หน้าเว็บพร้อมข้อมูลเท่าที่มีได้เสมอ
+    res.render('index', { coins, news });
+  } catch (error) {
+    // Catch นี้จะทำงานเฉพาะกรณีมีข้อผิดพลาดร้ายแรงที่ไม่เกี่ยวกับการ fetch API โดยตรง
+    console.error("An unexpected error occurred on the home page:", error.message);
+    res.status(500).send("An unexpected server error occurred.");
+  }
+});
 
-  // Fetch latest news
-  await tracker.fetchCryptoNews('bitcoin OR ethereum', 5);
+// Route สำหรับหน้า Search
+app.get('/search', async (req, res) => {
+  const tracker = new CryptoNewsTracker();
+  const { keyword } = req.query; // ดึง keyword จาก URL query string
 
-  console.log('='.repeat(60) + '\n');
+  if (!keyword) {
+    // ถ้ายังไม่มีการค้นหา ก็แสดงหน้าฟอร์มเปล่าๆ
+    return res.render('search');
+  }
 
-  // Fetch Bitcoin details
-  await tracker.fetchCoinDetails('bitcoin');
+  try {
+    const articles = await tracker.fetchCryptoNews(keyword, 20); // ค้นหาและดึง 20 ข่าว
+    res.render('search', { articles, keyword });
+  } catch (error) {
+    console.error(`Error searching for "${keyword}":`, error.message);
+    res.status(500).send(`Error fetching news for keyword: ${keyword}`);
+  }
+});
 
-  console.log('='.repeat(60));
-  console.log('✅ Done!');
-}
-
-// Run the application
-if (require.main === module) {
-  main();
-}
+// เริ่มการทำงานของ Server
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on http://localhost:${PORT}`);
+});
 
 module.exports = CryptoNewsTracker;
